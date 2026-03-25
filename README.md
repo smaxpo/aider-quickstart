@@ -7,45 +7,15 @@ Run [aider](https://aider.chat) in a Docker container with pre-configured settin
 | File | Purpose |
 |---|---|
 | `Dockerfile` | Builds the `aider-docker` image with aider pre-installed |
+| `entrypoint.sh` | Handles GitHub Copilot device code authentication before launching aider |
 | `.aider.conf.yml` | Default aider configuration (model, provider, conventions, etc.) |
 | `CONVENTIONS.md` | Baseline coding conventions for the AI agent, loaded in every session |
-| `.env.example` | Template for your `.env` file with Copilot API credentials |
 | `setup.sh` | Builds the image and installs shell functions into `~/.bashrc` |
 
 ## Prerequisites
 
 - Docker
 - A GitHub Copilot subscription
-- A Copilot OAuth token (see below)
-
-## Obtaining a Copilot OAuth Token
-
-Aider connects to GitHub Copilot via its OpenAI-compatible API at `https://api.githubcopilot.com`. You need an OAuth token to authenticate.
-
-The easiest way to get one is to sign in to Copilot from a JetBrains IDE (PyCharm, GoLand, etc.). After you authenticate, a file appears at:
-
-```
-~/.config/github-copilot/apps.json
-```
-
-On Windows:
-
-```
-%LOCALAPPDATA%\github-copilot\apps.json
-```
-
-Copy the `oauth_token` value from that file -- that string is your API key.
-
-## Setting Up .env
-
-Copy the example and fill in your token:
-
-```bash
-cp .env.example ~/.env
-# Edit ~/.env and replace <your-copilot-oauth-token> with the real token
-```
-
-The `.env` file will be bind-mounted into the container at runtime.
 
 ## Quick Start
 
@@ -61,6 +31,29 @@ source ~/.bashrc
 3. Add (or update) the `aider` and `aidcmd` shell functions, showing diffs and asking for confirmation if they already exist
 4. Display the changes made and optionally delete the backup
 
+## Authentication
+
+On first run, the container performs the GitHub device code flow:
+
+```
+No Copilot OAuth token found. Starting device code authentication...
+
+Please visit: https://github.com/login/device
+Enter code:   ABCD-1234
+
+Waiting for authorization (expires in 15 minutes)...
+Authentication successful! Token saved.
+```
+
+Open the URL in your browser, enter the code displayed in the terminal, and authorize the application. The OAuth token is saved to `~/.config/aider-copilot/auth.json` on the host and reused for all subsequent sessions -- you only need to authenticate once.
+
+To re-authenticate (e.g. if the token expires), delete the saved token and run aider again:
+
+```bash
+rm ~/.config/aider-copilot/auth.json
+aider
+```
+
 ## Usage
 
 ### Interactive Mode
@@ -71,7 +64,7 @@ Run aider in the current directory:
 aider
 ```
 
-This mounts `$PWD` into the container at `/app` and bind-mounts `~/.env` for API credentials.
+This mounts `$PWD` into the container at `/app` and persists authentication state via `~/.config/aider-copilot`.
 
 ### One-Shot Commands
 
@@ -97,16 +90,17 @@ See the [aider configuration docs](https://aider.chat/docs/config/aider_conf.htm
 
 ### Discovering Available Models
 
-List the models your Copilot subscription provides:
+List the models your Copilot subscription provides. First, ensure you have authenticated (run `aider` once), then:
 
 ```bash
+TOKEN=$(python3 -c "import json; print(json.load(open('$HOME/.config/aider-copilot/auth.json'))['oauth_token'])")
 curl -s https://api.githubcopilot.com/models \
-  -H "Authorization: Bearer $OPENAI_API_KEY" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -H "Copilot-Integration-Id: vscode-chat" | jq -r '.data[].id'
+  -H "Copilot-Integration-Id: vscode-chat" | python3 -m json.tool
 ```
 
-Each returned ID can be used with aider by prefixing it with `openai/`. For example:
+Each model ID can be used with aider by prefixing it with `openai/`. For example:
 
 ```bash
 aider --model openai/gpt-4o
@@ -123,7 +117,7 @@ If a repository mounted into `/app` contains its own `CONVENTIONS.md`, you can a
 
 ## Rebuilding
 
-After changing `Dockerfile`, `.aider.conf.yml`, or `CONVENTIONS.md`, rebuild:
+After changing `Dockerfile`, `.aider.conf.yml`, `CONVENTIONS.md`, or `entrypoint.sh`, rebuild:
 
 ```bash
 docker build -t aider-docker .

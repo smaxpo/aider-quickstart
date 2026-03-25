@@ -18,17 +18,12 @@ aider () {
     return 1
   fi
 
-  local env_args=()
-  if [ -f "$HOME/.env" ]; then
-    env_args=(-v "$HOME/.env:/app/.env")
-  else
-    echo "Warning: ~/.env not found. Create it from .env.example with your Copilot OAuth token."
-  fi
+  mkdir -p "$HOME/.config/aider-copilot"
 
   docker run --rm -it \
     -v "$PWD:/app" \
     -w "/app" \
-    "${env_args[@]}" \
+    -v "$HOME/.config/aider-copilot:/home/devuser/.config/aider-copilot" \
     "$image" "$@"
 }
 FUNC

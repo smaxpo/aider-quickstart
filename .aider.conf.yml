@@ -4,4 +4,3 @@ show-model-warnings: false
 read: /home/devuser/CONVENTIONS.md
 analytics: false
 check-update: false
-env-file: /app/.env
